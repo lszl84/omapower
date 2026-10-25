@@ -1,10 +1,11 @@
 {
   "schemaVersion": 1,
-  "id": "omarchy.power",
-  "name": "Power",
-  "version": "1.0.0",
-  "author": "Omarchy",
-  "description": "Battery, power profile, and system stats",
+  "id": "com.devmindscape.omapower",
+  "name": "OmaPower",
+  "version": "0.1.0",
+  "author": "Luke | DevMindscape",
+  "license": "MIT",
+  "description": "Omarchy's Power panel, showing how long you've been on battery or plugged in instead of the battery's charge cycles.",
   "kinds": [
     "bar-widget"
   ],
@@ -12,9 +13,12 @@
     "barWidget": "Panel.qml"
   },
   "barWidget": {
-    "displayName": "Power",
-    "description": "Battery, power profile, and system stats",
+    "displayName": "OmaPower",
+    "description": "Battery, power profile, and system stats, with time on battery or plugged in",
     "category": "System",
     "allowMultiple": false
+  },
+  "omarchy": {
+    "clonedFrom": "omarchy.power"
   }
 }
