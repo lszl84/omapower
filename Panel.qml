@@ -20,6 +20,11 @@ Panel {
   property string activeProfile: ""
   property int profileIndex: 0
   property bool cursorActive: false
+  // When the charger was last connected or disconnected (epoch ms; 0 = no
+  // change in the last 7 days), from UPower's persistent charge history so it
+  // survives reboots and hibernation. clockNow ticks on refresh.
+  property double powerSince: 0
+  property double clockNow: Date.now()
   readonly property bool showPercentage: setting("showPercentage", false) === true
   // With the percentage shown the button paints a text block wider than an
   // icon, so the open-panel mark takes the painted width instead of the
@@ -139,6 +144,43 @@ Panel {
     if (!batteryProc.running) batteryProc.running = true
     if (!profilesProc.running) profilesProc.running = true
     if (!systemProc.running) systemProc.running = true
+    if (!historyProc.running) historyProc.running = true
+    clockNow = Date.now()
+  }
+
+  // UPower history states: 1 charging, 4 fully charged, 5 pending charge are
+  // on the charger; 2 discharging, 3 empty, 6 pending discharge are on battery;
+  // 0 unknown is skipped.
+  function updatePowerSince(raw) {
+    var rows
+    try { rows = JSON.parse(raw).data[0] } catch (e) { return }
+    var onCharger = function(s) { return s === 1 || s === 4 || s === 5 }
+    var onBattery = function(s) { return s === 2 || s === 3 || s === 6 }
+    rows.sort(function(a, b) { return a[0] - b[0] })
+    var since = 0, current = null, changes = 0
+    for (var i = 0; i < rows.length; i++) {
+      var s = rows[i][2]
+      if (!onCharger(s) && !onBattery(s)) continue
+      if (onCharger(s) !== current) {
+        if (current !== null) changes++
+        current = onCharger(s)
+        since = rows[i][0] * 1000
+      }
+    }
+    if (current === null || changes === 0) powerSince = 0
+    // UPower's live state can be a moment ahead of its history right after a plug event.
+    else if (current === UPower.onBattery) powerSince = Date.now()
+    else powerSince = since
+  }
+
+  function formatSince(ms) {
+    if (!ms) return "over 7d"
+    var m = Math.max(0, Math.floor((clockNow - ms) / 60000))
+    if (m < 1) return "just now"
+    if (m < 60) return m + "m"
+    var h = Math.floor(m / 60)
+    if (h < 24) return h + "h " + (m % 60) + "m"
+    return Math.floor(h / 24) + "d " + (h % 24) + "h"
   }
 
   function updateKeyValue(raw, targetName) {
@@ -210,6 +252,14 @@ Panel {
     id: batteryProc
     command: ["omarchy-battery-status", "--shell"]
     stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updateKeyValue(text, "battery") }
+  }
+
+  Process {
+    id: historyProc
+    // Last 7 days of the battery's charge history; the high point limit keeps
+    // UPower from merging entries, which would blur the plug/unplug moment.
+    command: ["bash", "-c", "b=$(busctl --system --json=short call org.freedesktop.UPower /org/freedesktop/UPower org.freedesktop.UPower EnumerateDevices | jq -r '.data[0][]' | grep -m1 /battery_) && busctl --system --json=short call org.freedesktop.UPower \"$b\" org.freedesktop.UPower.Device GetHistory suu charge 604800 100000"]
+    stdout: StdioCollector { waitForEnd: true; onStreamFinished: root.updatePowerSince(text) }
   }
 
   Process {
@@ -435,7 +485,7 @@ Panel {
             width: (parent.width - parent.spacing) / 2
             spacing: Style.spacing.labelGap
             InfoPair { label: "Battery size"; value: root.batteryInfo.size || "" }
-            InfoPair { label: "Charge cycles"; value: root.batteryInfo.cycles || "—" }
+            InfoPair { label: root.discharging ? "On battery for" : "Plugged in for"; value: root.formatSince(root.powerSince) }
           }
 
           Column {
